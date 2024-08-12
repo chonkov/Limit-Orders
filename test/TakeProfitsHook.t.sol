@@ -90,4 +90,83 @@ contract TakeProfitsHookTest is Test, Deployers {
             ZERO_BYTES
         );
     }
+
+    function test_placeOrder() public {
+        // Place a zeroForOne take-profit order
+        // for 10e18 token0 tokens
+        // at tick 100
+        int24 tick = 100;
+        uint256 amount = 10e18;
+        bool zeroForOne = true;
+
+        // Note the original balance of token0 we have
+        uint256 originalBalance = token0.balanceOfSelf();
+
+        // Place the order
+        int24 tickLower = hook.placeOrder(key, tick, zeroForOne, amount);
+
+        // Note the new balance of token0 we have
+        uint256 newBalance = token0.balanceOfSelf();
+
+        // Since we deployed the pool contract with tick spacing = 60
+        // i.e. the tick can only be a multiple of 60
+        // the tickLower should be 60 since we placed an order at tick 100
+        assertEq(tickLower, 60);
+
+        // Ensure that our balance of token0 was reduced by `amount` tokens
+        assertEq(originalBalance - newBalance, amount);
+
+        // Check the balance of ERC-1155 tokens we received
+        uint256 positionId = hook.getPositionId(key, tickLower, zeroForOne);
+        uint256 tokenBalance = hook.balanceOf(address(this), positionId);
+
+        // Ensure that we were, in fact, given ERC-1155 tokens for the order
+        // equal to the `amount` of token0 tokens we placed the order for
+        assertTrue(positionId != 0);
+        assertEq(positionId, uint256(keccak256(abi.encode(key.toId(), tickLower, zeroForOne))));
+        assertEq(tokenBalance, amount);
+    }
+
+    function test_cancelOrder() public {
+        // Place a zeroForOne take-profit order
+        // for 10e18 token0 tokens
+        // at tick -50
+        int24 tick = -50;
+        uint256 amount = 10e18;
+        bool zeroForOne = true;
+
+        uint256 originalBalance = token0.balanceOfSelf();
+        int24 tickLower = hook.placeOrder(key, tick, zeroForOne, amount);
+        uint256 newBalance = token0.balanceOfSelf();
+
+        assertEq(tickLower, -60);
+        assertEq(originalBalance - newBalance, amount);
+
+        // Check the balance of ERC-1155 tokens we received
+        uint256 positionId = hook.getPositionId(key, tickLower, zeroForOne);
+        uint256 tokenBalance = hook.balanceOf(address(this), positionId);
+        assertEq(tokenBalance, amount);
+
+        // Cancel the order
+        hook.cancelOrder(key, tickLower, zeroForOne);
+
+        // Check that we received our token0 tokens back, and no longer own any ERC-1155 tokens
+        uint256 finalBalance = token0.balanceOfSelf();
+        assertEq(finalBalance, originalBalance);
+
+        tokenBalance = hook.balanceOf(address(this), positionId);
+        assertEq(tokenBalance, 0);
+    }
+
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure returns (bytes4) {
+        return this.onERC1155Received.selector;
+    }
+
+    function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata)
+        external
+        pure
+        returns (bytes4)
+    {
+        return this.onERC1155BatchReceived.selector;
+    }
 }
