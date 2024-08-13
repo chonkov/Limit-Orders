@@ -238,6 +238,67 @@ contract TakeProfitsHookTest is Test, Deployers {
         assertEq(newToken0Balance - originalToken0Balance, claimableOutputTokens);
     }
 
+    function test_multiple_orderExecute_zeroForOne_onlyOne() public {
+        PoolSwapTest.TestSettings memory testSettings =
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
+
+        // Setup two zeroForOne orders at ticks 0 and 60
+        uint256 amount = 0.01 ether;
+
+        hook.placeOrder(key, 0, true, amount);
+        hook.placeOrder(key, 60, true, amount);
+
+        (, int24 currentTick,,) = manager.getSlot0(key.toId());
+        assertEq(currentTick, 0);
+
+        // Do a swap to make tick increase beyond 60
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: false,
+            amountSpecified: -0.1 ether,
+            sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+        });
+
+        swapRouter.swap(key, params, testSettings, ZERO_BYTES);
+
+        // Only one order should have been executed
+        // because the execution of that order would lower the tick
+        // so even though tick increased beyond 60
+        // the first order execution will lower it back down
+        // so order at tick = 60 will not be executed
+        uint256 tokensLeftToSell = hook.pendingOrders(key.toId(), 0, true);
+        assertEq(tokensLeftToSell, 0);
+
+        // Order at Tick 60 should still be pending
+        tokensLeftToSell = hook.pendingOrders(key.toId(), 60, true);
+        assertEq(tokensLeftToSell, amount);
+    }
+
+    function test_multiple_orderExecute_zeroForOne_both() public {
+        PoolSwapTest.TestSettings memory testSettings =
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
+
+        // Setup two zeroForOne orders at ticks 0 and 60
+        uint256 amount = 0.01 ether;
+
+        hook.placeOrder(key, 0, true, amount);
+        hook.placeOrder(key, 60, true, amount);
+
+        // Do a swap to make tick increase
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: false,
+            amountSpecified: -0.1111 ether,
+            sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+        });
+
+        swapRouter.swap(key, params, testSettings, ZERO_BYTES);
+
+        uint256 tokensLeftToSell = hook.pendingOrders(key.toId(), 0, true);
+        assertEq(tokensLeftToSell, 0);
+
+        tokensLeftToSell = hook.pendingOrders(key.toId(), 60, true);
+        assertEq(tokensLeftToSell, 0);
+    }
+
     function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure returns (bytes4) {
         return this.onERC1155Received.selector;
     }
